@@ -53,6 +53,7 @@ import { IHoverDelegate, IHoverDelegateOptions } from 'vs/base/browser/ui/iconLa
 import { IUriIdentityService } from 'vs/platform/uriIdentity/common/uriIdentity';
 import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
 import { IStorageService, IStorageValueChangeEvent, StorageScope, StorageTarget } from 'vs/platform/storage/common/storage';
+import { AriaRole } from 'vs/base/browser/ui/aria/aria';
 
 const ItemHeight = 22;
 
@@ -328,7 +329,7 @@ export class TimelinePane extends ViewPane {
 		let pageSize = this.configurationService.getValue<number | null | undefined>('timeline.pageSize');
 		if (pageSize === undefined || pageSize === null) {
 			// If we are paging when scrolling, then add an extra item to the end to make sure the "Load more" item is out of view
-			pageSize = Math.max(20, Math.floor((this.tree.renderHeight / ItemHeight) + (this.pageOnScroll ? 1 : -1)));
+			pageSize = Math.max(20, Math.floor((this.tree?.renderHeight ?? 0 / ItemHeight) + (this.pageOnScroll ? 1 : -1)));
 		}
 		return pageSize;
 	}
@@ -914,7 +915,7 @@ export class TimelinePane extends ViewPane {
 					}
 					return element.accessibilityInformation ? element.accessibilityInformation.label : localize('timeline.aria.item', "{0}: {1}", element.relativeTimeFullWord ?? '', element.label);
 				},
-				getRole(element: TreeElement): string {
+				getRole(element: TreeElement): AriaRole {
 					if (isLoadMoreCommand(element)) {
 						return 'treeitem';
 					}
