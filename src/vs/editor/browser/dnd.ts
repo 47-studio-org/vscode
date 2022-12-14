@@ -4,8 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { DataTransfers } from 'vs/base/browser/dnd';
-import { distinct } from 'vs/base/common/arrays';
-import { createFileDataTransferItem, createStringDataTransferItem, IDataTransferItem, VSDataTransfer } from 'vs/base/common/dataTransfer';
+import { createFileDataTransferItem, createStringDataTransferItem, IDataTransferItem, UriList, VSDataTransfer } from 'vs/base/common/dataTransfer';
 import { Mimes } from 'vs/base/common/mime';
 import { URI } from 'vs/base/common/uri';
 import { CodeDataTransfers, extractEditorsDropData, FileAdditionalNativeProperties } from 'vs/platform/dnd/browser/dnd';
@@ -28,7 +27,7 @@ export function toVSDataTransfer(dataTransfer: DataTransfer) {
 	return vsDataTransfer;
 }
 
-export function createFileDataTransferItemFromFile(file: File): IDataTransferItem {
+function createFileDataTransferItemFromFile(file: File): IDataTransferItem {
 	const uri = (file as FileAdditionalNativeProperties).path ? URI.parse((file as FileAdditionalNativeProperties).path!) : undefined;
 	return createFileDataTransferItem(file.name, uri, async () => {
 		return new Uint8Array(await file.arrayBuffer());
@@ -41,8 +40,8 @@ const INTERNAL_DND_MIME_TYPES = Object.freeze([
 	DataTransfers.RESOURCES,
 ]);
 
-export function addExternalEditorsDropData(dataTransfer: VSDataTransfer, dragEvent: DragEvent) {
-	if (dragEvent.dataTransfer && !dataTransfer.has(Mimes.uriList)) {
+export function addExternalEditorsDropData(dataTransfer: VSDataTransfer, dragEvent: DragEvent, overwriteUriList = false) {
+	if (dragEvent.dataTransfer && (overwriteUriList || !dataTransfer.has(Mimes.uriList))) {
 		const editorData = extractEditorsDropData(dragEvent)
 			.filter(input => input.resource)
 			.map(input => input.resource!.toString());
@@ -56,8 +55,7 @@ export function addExternalEditorsDropData(dataTransfer: VSDataTransfer, dragEve
 		}
 
 		if (editorData.length) {
-			const str = distinct(editorData).join('\n');
-			dataTransfer.replace(Mimes.uriList, createStringDataTransferItem(str));
+			dataTransfer.replace(Mimes.uriList, createStringDataTransferItem(UriList.create(editorData)));
 		}
 	}
 

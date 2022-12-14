@@ -77,6 +77,7 @@ suite('AbstractKeybindingService', () => {
 				shiftKey: keybinding.shiftKey,
 				altKey: keybinding.altKey,
 				metaKey: keybinding.metaKey,
+				altGraphKey: false,
 				keyCode: keybinding.keyCode,
 				code: null!
 			}, null!);
@@ -141,8 +142,10 @@ suite('AbstractKeybindingService', () => {
 
 			const notificationService: INotificationService = {
 				_serviceBrand: undefined,
+				doNotDisturbMode: false,
 				onDidAddNotification: undefined!,
 				onDidRemoveNotification: undefined!,
+				onDidChangeDoNotDisturbMode: undefined!,
 				notify: (notification: INotification) => {
 					showMessageCalls.push({ sev: notification.severity, message: notification.message });
 					return new NoOpNotification();
@@ -169,8 +172,7 @@ suite('AbstractKeybindingService', () => {
 							statusMessageCallsDisposed!.push(message);
 						}
 					};
-				},
-				setFilter() { }
+				}
 			};
 
 			const resolver = new KeybindingResolver(items, [], () => { });

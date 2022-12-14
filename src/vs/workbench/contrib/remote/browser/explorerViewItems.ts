@@ -20,7 +20,7 @@ import { Action2, MenuId } from 'vs/platform/actions/common/actions';
 import { ServicesAccessor } from 'vs/platform/instantiation/common/instantiation';
 import { VIEWLET_ID } from 'vs/workbench/contrib/remote/browser/remoteExplorer';
 
-export interface IRemoteSelectItem extends ISelectOptionItem {
+interface IRemoteSelectItem extends ISelectOptionItem {
 	authority: string[];
 }
 
@@ -46,7 +46,7 @@ export class SwitchRemoteViewItem extends SelectActionViewItem {
 			const remoteAuthority = this.environmentService.remoteAuthority;
 			isSetForConnection = true;
 			const explorerType: string[] | undefined = remoteAuthority ? [remoteAuthority.split('+')[0]] :
-				this.storageService.get(REMOTE_EXPLORER_TYPE_KEY, StorageScope.WORKSPACE)?.split(',') ?? this.storageService.get(REMOTE_EXPLORER_TYPE_KEY, StorageScope.GLOBAL)?.split(',');
+				this.storageService.get(REMOTE_EXPLORER_TYPE_KEY, StorageScope.WORKSPACE)?.split(',') ?? this.storageService.get(REMOTE_EXPLORER_TYPE_KEY, StorageScope.PROFILE)?.split(',');
 			if (explorerType !== undefined) {
 				index = this.getOptionIndexForExplorerType(explorerType);
 			}
