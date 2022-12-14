@@ -6,13 +6,14 @@
 
 import { RunOnceScheduler } from 'vs/base/common/async';
 import { DisposableStore } from 'vs/base/common/lifecycle';
-import { LRUCache, TernarySearchTree } from 'vs/base/common/map';
+import { LRUCache } from 'vs/base/common/map';
+import { TernarySearchTree } from 'vs/base/common/ternarySearchTree';
 import { IPosition } from 'vs/editor/common/core/position';
 import { ITextModel } from 'vs/editor/common/model';
 import { CompletionItemKind, CompletionItemKinds } from 'vs/editor/common/languages';
 import { CompletionItem } from 'vs/editor/contrib/suggest/browser/suggest';
 import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
-import { registerSingleton } from 'vs/platform/instantiation/common/extensions';
+import { InstantiationType, registerSingleton } from 'vs/platform/instantiation/common/extensions';
 import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
 import { IStorageService, StorageScope, StorageTarget, WillSaveStateReason } from 'vs/platform/storage/common/storage';
 
@@ -274,7 +275,7 @@ export class SuggestMemoryService implements ISuggestMemoryService {
 
 			try {
 				const share = this._configService.getValue<boolean>('editor.suggest.shareSuggestSelections');
-				const scope = share ? StorageScope.GLOBAL : StorageScope.WORKSPACE;
+				const scope = share ? StorageScope.PROFILE : StorageScope.WORKSPACE;
 				const raw = this._storageService.get(`${SuggestMemoryService._storagePrefix}/${mode}`, scope);
 				if (raw) {
 					this._strategy.fromJSON(JSON.parse(raw));
@@ -290,7 +291,7 @@ export class SuggestMemoryService implements ISuggestMemoryService {
 	private _saveState() {
 		if (this._strategy) {
 			const share = this._configService.getValue<boolean>('editor.suggest.shareSuggestSelections');
-			const scope = share ? StorageScope.GLOBAL : StorageScope.WORKSPACE;
+			const scope = share ? StorageScope.PROFILE : StorageScope.WORKSPACE;
 			const raw = JSON.stringify(this._strategy);
 			this._storageService.store(`${SuggestMemoryService._storagePrefix}/${this._strategy.name}`, raw, scope, StorageTarget.MACHINE);
 		}
@@ -306,4 +307,4 @@ export interface ISuggestMemoryService {
 	select(model: ITextModel, pos: IPosition, items: CompletionItem[]): number;
 }
 
-registerSingleton(ISuggestMemoryService, SuggestMemoryService, true);
+registerSingleton(ISuggestMemoryService, SuggestMemoryService, InstantiationType.Delayed);

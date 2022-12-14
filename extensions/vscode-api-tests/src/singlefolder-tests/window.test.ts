@@ -5,7 +5,7 @@
 
 import * as assert from 'assert';
 import { join } from 'path';
-import { CancellationTokenSource, commands, MarkdownString, TabInputNotebook, Position, QuickPickItem, Selection, StatusBarAlignment, TextEditor, TextEditorSelectionChangeKind, TextEditorViewColumnChangeEvent, TabInputText, Uri, ViewColumn, window, workspace, TabInputTextDiff } from 'vscode';
+import { CancellationTokenSource, commands, MarkdownString, TabInputNotebook, Position, QuickPickItem, Selection, StatusBarAlignment, TextEditor, TextEditorSelectionChangeKind, TextEditorViewColumnChangeEvent, TabInputText, Uri, ViewColumn, window, workspace, TabInputTextDiff, UIKind, env } from 'vscode';
 import { assertNoRpc, closeAllEditors, createRandomFile, pathEquals } from '../utils';
 
 
@@ -207,9 +207,25 @@ suite('vscode API - window', () => {
 			}
 		}));
 
+		// verify the result array matches our expectations: depending
+		// on execution time there are 2 possible results for the first
+		// two entries. For the last entry there is only the `fileC` URI
+		// as expected result because it is the last editor opened.
+		// - either `undefined` indicating that the opening of the editor
+		//   was cancelled by the next editor opening
+		// - or the expected `URI` that was opened in case it suceeds
+
 		assert.strictEqual(result.length, 3);
-		assert.strictEqual(result[0], undefined);
-		assert.strictEqual(result[1], undefined);
+		if (result[0]) {
+			assert.strictEqual(result[0].toString(), fileA.toString());
+		} else {
+			assert.strictEqual(result[0], undefined);
+		}
+		if (result[1]) {
+			assert.strictEqual(result[1].toString(), fileB.toString());
+		} else {
+			assert.strictEqual(result[1], undefined);
+		}
 		assert.strictEqual(result[2]?.toString(), fileC.toString());
 	});
 
@@ -433,7 +449,7 @@ suite('vscode API - window', () => {
 		assert.strictEqual(tabs[3].input.uri.toString(), commandFile.toString());
 	});
 
-	test('Tabs - Ensure tabs getter is correct', async function () {
+	(env.uiKind === UIKind.Web ? test.skip : test)('Tabs - Ensure tabs getter is correct', async function () {
 		// Reduce test timeout as this test should be quick, so even with 3 retries it will be under 60s.
 		this.timeout(10000);
 		// This test can be flaky because of opening a notebook
