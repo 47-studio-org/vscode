@@ -11,7 +11,7 @@ import { StopWatch } from 'vs/base/common/stopwatch';
 import { noBreakWhitespace } from 'vs/base/common/strings';
 import { ICodeEditor } from 'vs/editor/browser/editorBrowser';
 import { DynamicCssRules } from 'vs/editor/browser/editorDom';
-import { registerEditorContribution } from 'vs/editor/browser/editorExtensions';
+import { EditorContributionInstantiation, registerEditorContribution } from 'vs/editor/browser/editorExtensions';
 import { EditorOption } from 'vs/editor/common/config/editorOptions';
 import { Position } from 'vs/editor/common/core/position';
 import { Range } from 'vs/editor/common/core/range';
@@ -172,10 +172,12 @@ export class ColorDetector extends Disposable implements IEditorContribution {
 			options: ModelDecorationOptions.EMPTY
 		}));
 
-		this._decorationsIds = this._editor.deltaDecorations(this._decorationsIds, decorations);
+		this._editor.changeDecorations((changeAccessor) => {
+			this._decorationsIds = changeAccessor.deltaDecorations(this._decorationsIds, decorations);
 
-		this._colorDatas = new Map<string, IColorData>();
-		this._decorationsIds.forEach((id, i) => this._colorDatas.set(id, colorDatas[i]));
+			this._colorDatas = new Map<string, IColorData>();
+			this._decorationsIds.forEach((id, i) => this._colorDatas.set(id, colorDatas[i]));
+		});
 	}
 
 	private _colorDecorationClassRefs = this._register(new DisposableStore());
@@ -219,7 +221,8 @@ export class ColorDetector extends Disposable implements IEditorContribution {
 	}
 
 	private removeAllDecorations(): void {
-		this._decorationsIds = this._editor.deltaDecorations(this._decorationsIds, []);
+		this._editor.removeDecorations(this._decorationsIds);
+		this._decorationsIds = [];
 		this._colorDecoratorIds.clear();
 		this._colorDecorationClassRefs.clear();
 	}
@@ -246,4 +249,4 @@ export class ColorDetector extends Disposable implements IEditorContribution {
 	}
 }
 
-registerEditorContribution(ColorDetector.ID, ColorDetector);
+registerEditorContribution(ColorDetector.ID, ColorDetector, EditorContributionInstantiation.AfterFirstRender);

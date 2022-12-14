@@ -6,8 +6,9 @@
 import { localize } from 'vs/nls';
 import { KeyMod, KeyChord, KeyCode } from 'vs/base/common/keyCodes';
 import { MenuRegistry, MenuId, Action2, registerAction2 } from 'vs/platform/actions/common/actions';
+import { equalsIgnoreCase } from 'vs/base/common/strings';
 import { Registry } from 'vs/platform/registry/common/platform';
-import { CATEGORIES } from 'vs/workbench/common/actions';
+import { Categories } from 'vs/platform/action/common/actionCommonCategories';
 import { IWorkbenchThemeService, IWorkbenchTheme, ThemeSettingTarget, IWorkbenchColorTheme, IWorkbenchFileIconTheme, IWorkbenchProductIconTheme, ThemeSettings } from 'vs/workbench/services/themes/common/workbenchThemeService';
 import { VIEWLET_ID, IExtensionsViewPaneContainer } from 'vs/workbench/contrib/extensions/common/extensions';
 import { IExtensionGalleryService, IExtensionManagementService, IGalleryExtension } from 'vs/platform/extensionManagement/common/extensionManagement';
@@ -29,7 +30,7 @@ import { Codicon } from 'vs/base/common/codicons';
 import { registerIcon } from 'vs/platform/theme/common/iconRegistry';
 import { ThemeIcon } from 'vs/platform/theme/common/themeService';
 import { Emitter } from 'vs/base/common/event';
-import { IExtensionResourceLoaderService } from 'vs/workbench/services/extensionResourceLoader/common/extensionResourceLoader';
+import { IExtensionResourceLoaderService } from 'vs/platform/extensionResourceLoader/common/extensionResourceLoader';
 import { IInstantiationService, ServicesAccessor } from 'vs/platform/instantiation/common/instantiation';
 import { KeybindingWeight } from 'vs/platform/keybinding/common/keybindingsRegistry';
 import { CommandsRegistry } from 'vs/platform/commands/common/commands';
@@ -167,6 +168,8 @@ class MarketplaceThemesPicker {
 					const success = await this.installExtension(themeItem.galleryExtension);
 					if (success) {
 						selectTheme(themeItem.theme, true);
+					} else {
+						selectTheme(currentTheme, true);
 					}
 				}
 			});
@@ -181,7 +184,11 @@ class MarketplaceThemesPicker {
 					}
 				}
 			});
-			quickpick.onDidChangeActive(themes => selectTheme(themes[0]?.theme, false));
+			quickpick.onDidChangeActive(themes => {
+				if (result === undefined) {
+					selectTheme(themes[0]?.theme, false);
+				}
+			});
 
 			quickpick.onDidHide(() => {
 				if (result === undefined) {
@@ -357,7 +364,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: SelectColorThemeCommandId,
 			title: { value: localize('selectTheme.label', "Color Theme"), original: 'Color Theme' },
-			category: CATEGORIES.Preferences,
+			category: Categories.Preferences,
 			f1: true,
 			keybinding: {
 				weight: KeybindingWeight.WorkbenchContrib,
@@ -399,7 +406,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: SelectFileIconThemeCommandId,
 			title: { value: localize('selectIconTheme.label', "File Icon Theme"), original: 'File Icon Theme' },
-			category: CATEGORIES.Preferences,
+			category: Categories.Preferences,
 			f1: true
 		});
 	}
@@ -434,7 +441,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: SelectProductIconThemeCommandId,
 			title: { value: localize('selectProductIconTheme.label', "Product Icon Theme"), original: 'Product Icon Theme' },
-			category: CATEGORIES.Preferences,
+			category: Categories.Preferences,
 			f1: true
 		});
 	}
@@ -465,7 +472,10 @@ registerAction2(class extends Action2 {
 CommandsRegistry.registerCommand('workbench.action.previewColorTheme', async function (accessor: ServicesAccessor, extension: { publisher: string; name: string; version: string }, themeSettingsId?: string) {
 	const themeService = accessor.get(IWorkbenchThemeService);
 
-	const themes = await themeService.getMarketplaceColorThemes(extension.publisher, extension.name, extension.version);
+	let themes = findBuiltInThemes(await themeService.getColorThemes(), extension);
+	if (themes.length === 0) {
+		themes = await themeService.getMarketplaceColorThemes(extension.publisher, extension.name, extension.version);
+	}
 	for (const theme of themes) {
 		if (!themeSettingsId || theme.settingsId === themeSettingsId) {
 			await themeService.setColorTheme(theme, 'preview');
@@ -474,6 +484,10 @@ CommandsRegistry.registerCommand('workbench.action.previewColorTheme', async fun
 	}
 	return undefined;
 });
+
+function findBuiltInThemes(themes: IWorkbenchColorTheme[], extension: { publisher: string; name: string }): IWorkbenchColorTheme[] {
+	return themes.filter(({ extensionData }) => extensionData && extensionData.extensionIsBuiltin && equalsIgnoreCase(extensionData.extensionPublisher, extension.publisher) && equalsIgnoreCase(extensionData.extensionName, extension.name));
+}
 
 function configurationEntries(label: string): QuickPickInput<ThemeItem>[] {
 	return [
@@ -538,7 +552,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: 'workbench.action.generateColorTheme',
 			title: { value: localize('generateColorTheme.label', "Generate Color Theme From Current Settings"), original: 'Generate Color Theme From Current Settings' },
-			category: CATEGORIES.Developer,
+			category: Categories.Developer,
 			f1: true
 		});
 	}
@@ -592,7 +606,7 @@ registerAction2(class extends Action2 {
 		super({
 			id: toggleLightDarkThemesCommandId,
 			title: { value: localize('toggleLightDarkThemes.label', "Toggle between Light/Dark Themes"), original: 'Toggle between Light/Dark Themes' },
-			category: CATEGORIES.Preferences,
+			category: Categories.Preferences,
 			f1: true,
 		});
 	}
