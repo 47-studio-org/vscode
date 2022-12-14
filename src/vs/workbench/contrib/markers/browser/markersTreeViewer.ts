@@ -33,11 +33,10 @@ import { localize } from 'vs/nls';
 import { CancelablePromise, createCancelablePromise, Delayer } from 'vs/base/common/async';
 import { IModelService } from 'vs/editor/common/services/model';
 import { Range } from 'vs/editor/common/core/range';
-import { getCodeActions, CodeActionSet } from 'vs/editor/contrib/codeAction/browser/codeAction';
-import { CodeActionKind } from 'vs/editor/contrib/codeAction/browser/types';
+import { applyCodeAction, ApplyCodeActionReason, getCodeActions } from 'vs/editor/contrib/codeAction/browser/codeAction';
+import { CodeActionKind, CodeActionSet, CodeActionTriggerSource } from 'vs/editor/contrib/codeAction/common/types';
 import { ITextModel } from 'vs/editor/common/model';
 import { IEditorService, ACTIVE_GROUP } from 'vs/workbench/services/editor/common/editorService';
-import { applyCodeAction, ApplyCodeActionReason } from 'vs/editor/contrib/codeAction/browser/codeActionCommands';
 import { SeverityIcon } from 'vs/platform/severityIcon/common/severityIcon';
 import { CodeActionTriggerType } from 'vs/editor/common/languages';
 import { IOpenerService } from 'vs/platform/opener/common/opener';
@@ -50,6 +49,7 @@ import { Link } from 'vs/platform/opener/browser/link';
 import { ILanguageFeaturesService } from 'vs/editor/common/services/languageFeatures';
 import { IContextKey, IContextKeyService } from 'vs/platform/contextkey/common/contextkey';
 import { MarkersContextKeys, MarkersViewMode } from 'vs/workbench/contrib/markers/common/markers';
+import { unsupportedSchemas } from 'vs/platform/markers/common/markerService';
 
 interface IResourceMarkersTemplateData {
 	resourceLabel: IResourceLabel;
@@ -261,7 +261,7 @@ class ToggleMultilineActionViewItem extends ActionViewItem {
 		this.updateExpandedAttribute();
 	}
 
-	override updateClass(): void {
+	protected override updateClass(): void {
 		super.updateClass();
 		this.updateExpandedAttribute();
 	}
@@ -456,7 +456,7 @@ export class Filter implements ITreeFilter<MarkerElement, FilterData> {
 	}
 
 	private filterResourceMarkers(resourceMarkers: ResourceMarkers): TreeFilterResult<FilterData> {
-		if (resourceMarkers.resource.scheme === network.Schemas.walkThrough || resourceMarkers.resource.scheme === network.Schemas.walkThroughSnippet) {
+		if (unsupportedSchemas.has(resourceMarkers.resource.scheme)) {
 			return false;
 		}
 
@@ -602,15 +602,6 @@ export class MarkerViewModel extends Disposable {
 		this.setQuickFixes(true);
 	}
 
-	showQuickfixes(): void {
-		this.setQuickFixes(false).then(() => this.quickFixAction.run());
-	}
-
-	async getQuickFixes(waitForModel: boolean): Promise<IAction[]> {
-		const codeActions = await this.getCodeActions(waitForModel);
-		return codeActions ? this.toActions(codeActions) : [];
-	}
-
 	private async setQuickFixes(waitForModel: boolean): Promise<void> {
 		const codeActions = await this.getCodeActions(waitForModel);
 		this.quickFixAction.quickFixes = codeActions ? this.toActions(codeActions) : [];
@@ -627,7 +618,7 @@ export class MarkerViewModel extends Disposable {
 					if (!this.codeActionsPromise) {
 						this.codeActionsPromise = createCancelablePromise(cancellationToken => {
 							return getCodeActions(this.languageFeaturesService.codeActionProvider, model, new Range(this.marker.range.startLineNumber, this.marker.range.startColumn, this.marker.range.endLineNumber, this.marker.range.endColumn), {
-								type: CodeActionTriggerType.Invoke, filter: { include: CodeActionKind.QuickFix }
+								type: CodeActionTriggerType.Invoke, triggerAction: CodeActionTriggerSource.ProblemsView, filter: { include: CodeActionKind.QuickFix }
 							}, Progress.None, cancellationToken).then(actions => {
 								return this._register(actions);
 							});

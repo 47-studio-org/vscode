@@ -4,11 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { IDragAndDropData } from 'vs/base/browser/dnd';
-import { createStyleSheet } from 'vs/base/browser/dom';
-import { DomEmitter, stopEvent } from 'vs/base/browser/event';
+import { createStyleSheet, Dimension, EventHelper } from 'vs/base/browser/dom';
+import { DomEmitter } from 'vs/base/browser/event';
 import { IKeyboardEvent, StandardKeyboardEvent } from 'vs/base/browser/keyboardEvent';
 import { Gesture } from 'vs/base/browser/touch';
-import { alert } from 'vs/base/browser/ui/aria/aria';
+import { alert, AriaRole } from 'vs/base/browser/ui/aria/aria';
 import { CombinedSpliceable } from 'vs/base/browser/ui/list/splice';
 import { ScrollableElementChangeOptions } from 'vs/base/browser/ui/scrollbar/scrollableElementOptions';
 import { binarySearch, firstOrDefault, range } from 'vs/base/common/arrays';
@@ -258,6 +258,23 @@ export function isMonacoEditor(e: HTMLElement): boolean {
 	return isMonacoEditor(e.parentElement);
 }
 
+export function isButton(e: HTMLElement): boolean {
+	if ((e.tagName === 'A' && e.classList.contains('monaco-button')) ||
+		(e.tagName === 'DIV' && e.classList.contains('monaco-button-dropdown'))) {
+		return true;
+	}
+
+	if (e.classList.contains('monaco-list')) {
+		return false;
+	}
+
+	if (!e.parentElement) {
+		return false;
+	}
+
+	return isButton(e.parentElement);
+}
+
 class KeyboardController<T> implements IDisposable {
 
 	private readonly disposables = new DisposableStore();
@@ -367,7 +384,12 @@ class KeyboardController<T> implements IDisposable {
 	}
 }
 
-enum TypeLabelControllerState {
+export enum TypeNavigationMode {
+	Automatic,
+	Trigger
+}
+
+enum TypeNavigationControllerState {
 	Idle,
 	Typing
 }
@@ -385,12 +407,12 @@ export const DefaultKeyboardNavigationDelegate = new class implements IKeyboardN
 	}
 };
 
-class TypeLabelController<T> implements IDisposable {
+class TypeNavigationController<T> implements IDisposable {
 
 	private enabled = false;
-	private state: TypeLabelControllerState = TypeLabelControllerState.Idle;
+	private state: TypeNavigationControllerState = TypeNavigationControllerState.Idle;
 
-	private automaticKeyboardNavigation = true;
+	private mode = TypeNavigationMode.Automatic;
 	private triggered = false;
 	private previouslyFocused = -1;
 
@@ -401,26 +423,23 @@ class TypeLabelController<T> implements IDisposable {
 		private list: List<T>,
 		private view: ListView<T>,
 		private keyboardNavigationLabelProvider: IKeyboardNavigationLabelProvider<T>,
+		private keyboardNavigationEventFilter: IKeyboardNavigationEventFilter,
 		private delegate: IKeyboardNavigationDelegate
 	) {
 		this.updateOptions(list.options);
 	}
 
 	updateOptions(options: IListOptions<T>): void {
-		const enableKeyboardNavigation = typeof options.enableKeyboardNavigation === 'undefined' ? true : !!options.enableKeyboardNavigation;
-
-		if (enableKeyboardNavigation) {
+		if (options.typeNavigationEnabled ?? true) {
 			this.enable();
 		} else {
 			this.disable();
 		}
 
-		if (typeof options.automaticKeyboardNavigation !== 'undefined') {
-			this.automaticKeyboardNavigation = options.automaticKeyboardNavigation;
-		}
+		this.mode = options.typeNavigationMode ?? TypeNavigationMode.Automatic;
 	}
 
-	toggle(): void {
+	trigger(): void {
 		this.triggered = !this.triggered;
 	}
 
@@ -429,12 +448,15 @@ class TypeLabelController<T> implements IDisposable {
 			return;
 		}
 
+		let typing = false;
+
 		const onChar = this.enabledDisposables.add(Event.chain(this.enabledDisposables.add(new DomEmitter(this.view.domNode, 'keydown')).event))
 			.filter(e => !isInputElement(e.target as HTMLElement))
-			.filter(() => this.automaticKeyboardNavigation || this.triggered)
+			.filter(() => this.mode === TypeNavigationMode.Automatic || this.triggered)
 			.map(event => new StandardKeyboardEvent(event))
+			.filter(e => typing || this.keyboardNavigationEventFilter(e))
 			.filter(e => this.delegate.mightProducePrintableCharacter(e))
-			.forEach(e => e.preventDefault())
+			.forEach(e => EventHelper.stop(e, true))
 			.map(event => event.browserEvent.key)
 			.event;
 
@@ -443,6 +465,9 @@ class TypeLabelController<T> implements IDisposable {
 
 		onInput(this.onInput, this, this.enabledDisposables);
 		onClear(this.onClear, this, this.enabledDisposables);
+
+		onChar(() => typing = true, undefined, this.enabledDisposables);
+		onClear(() => typing = false, undefined, this.enabledDisposables);
 
 		this.enabled = true;
 		this.triggered = false;
@@ -473,15 +498,15 @@ class TypeLabelController<T> implements IDisposable {
 
 	private onInput(word: string | null): void {
 		if (!word) {
-			this.state = TypeLabelControllerState.Idle;
+			this.state = TypeNavigationControllerState.Idle;
 			this.triggered = false;
 			return;
 		}
 
 		const focus = this.list.getFocus();
 		const start = focus.length > 0 ? focus[0] : 0;
-		const delta = this.state === TypeLabelControllerState.Idle ? 1 : 0;
-		this.state = TypeLabelControllerState.Typing;
+		const delta = this.state === TypeNavigationControllerState.Idle ? 1 : 0;
+		this.state = TypeNavigationControllerState.Typing;
 
 		for (let i = 0; i < this.list.length; i++) {
 			const index = (start + i + delta) % this.list.length;
@@ -757,7 +782,7 @@ export interface IStyleController {
 export interface IListAccessibilityProvider<T> extends IListViewAccessibilityProvider<T> {
 	getAriaLabel(element: T): string | null;
 	getWidgetAriaLabel(): string;
-	getWidgetRole?(): string;
+	getWidgetRole?(): AriaRole;
 	getAriaLevel?(element: T): number | undefined;
 	onDidChangeActiveDescendant?: Event<void>;
 	getActiveDescendantId?(element: T): string | undefined;
@@ -801,6 +826,10 @@ export class DefaultStyleController implements IStyleController {
 			content.push(`.monaco-list${suffix}:focus .monaco-list-row.selected .codicon { color: ${styles.listActiveSelectionIconForeground}; }`);
 		}
 
+		if (styles.listFocusAndSelectionOutline) {
+			content.push(`.monaco-list${suffix}:focus .monaco-list-row.selected { outline-color: ${styles.listFocusAndSelectionOutline} !important; }`);
+		}
+
 		if (styles.listFocusAndSelectionBackground) {
 			content.push(`
 				.monaco-drag-image,
@@ -839,11 +868,11 @@ export class DefaultStyleController implements IStyleController {
 		}
 
 		if (styles.listHoverBackground) {
-			content.push(`.monaco-list${suffix}:not(.drop-target) .monaco-list-row:hover:not(.selected):not(.focused) { background-color: ${styles.listHoverBackground}; }`);
+			content.push(`.monaco-list${suffix}:not(.drop-target):not(.dragging) .monaco-list-row:hover:not(.selected):not(.focused) { background-color: ${styles.listHoverBackground}; }`);
 		}
 
 		if (styles.listHoverForeground) {
-			content.push(`.monaco-list${suffix} .monaco-list-row:hover:not(.selected):not(.focused) { color:  ${styles.listHoverForeground}; }`);
+			content.push(`.monaco-list${suffix}:not(.drop-target):not(.dragging) .monaco-list-row:hover:not(.selected):not(.focused) { color:  ${styles.listHoverForeground}; }`);
 		}
 
 		if (styles.listSelectionOutline) {
@@ -874,22 +903,6 @@ export class DefaultStyleController implements IStyleController {
 			`);
 		}
 
-		if (styles.listFilterWidgetBackground) {
-			content.push(`.monaco-list-type-filter { background-color: ${styles.listFilterWidgetBackground} }`);
-		}
-
-		if (styles.listFilterWidgetOutline) {
-			content.push(`.monaco-list-type-filter { border: 1px solid ${styles.listFilterWidgetOutline}; }`);
-		}
-
-		if (styles.listFilterWidgetNoMatchesOutline) {
-			content.push(`.monaco-list-type-filter.no-matches { border: 1px solid ${styles.listFilterWidgetNoMatchesOutline}; }`);
-		}
-
-		if (styles.listMatchesShadow) {
-			content.push(`.monaco-list-type-filter { box-shadow: 1px 1px 1px ${styles.listMatchesShadow}; }`);
-		}
-
 		if (styles.tableColumnsBorder) {
 			content.push(`
 				.monaco-table:hover > .monaco-split-view2,
@@ -912,9 +925,13 @@ export class DefaultStyleController implements IStyleController {
 	}
 }
 
+export interface IKeyboardNavigationEventFilter {
+	(e: StandardKeyboardEvent): boolean;
+}
+
 export interface IListOptionsUpdate extends IListViewOptionsUpdate {
-	readonly enableKeyboardNavigation?: boolean;
-	readonly automaticKeyboardNavigation?: boolean;
+	readonly typeNavigationEnabled?: boolean;
+	readonly typeNavigationMode?: TypeNavigationMode;
 	readonly multipleSelectionSupport?: boolean;
 }
 
@@ -927,6 +944,7 @@ export interface IListOptions<T> extends IListOptionsUpdate {
 	readonly multipleSelectionController?: IMultipleSelectionController<T>;
 	readonly styleController?: (suffix: string) => IStyleController;
 	readonly accessibilityProvider?: IListAccessibilityProvider<T>;
+	readonly keyboardNavigationEventFilter?: IKeyboardNavigationEventFilter;
 
 	// list view options
 	readonly useShadows?: boolean;
@@ -941,6 +959,7 @@ export interface IListOptions<T> extends IListOptionsUpdate {
 	readonly smoothScrolling?: boolean;
 	readonly scrollableElementChangeOptions?: ScrollableElementChangeOptions;
 	readonly alwaysConsumeMouseWheel?: boolean;
+	readonly initialSize?: Dimension;
 }
 
 export interface IListStyles {
@@ -950,6 +969,7 @@ export interface IListStyles {
 	listActiveSelectionBackground?: Color;
 	listActiveSelectionForeground?: Color;
 	listActiveSelectionIconForeground?: Color;
+	listFocusAndSelectionOutline?: Color;
 	listFocusAndSelectionBackground?: Color;
 	listFocusAndSelectionForeground?: Color;
 	listInactiveSelectionBackground?: Color;
@@ -964,10 +984,6 @@ export interface IListStyles {
 	listInactiveFocusOutline?: Color;
 	listSelectionOutline?: Color;
 	listHoverOutline?: Color;
-	listFilterWidgetBackground?: Color;
-	listFilterWidgetOutline?: Color;
-	listFilterWidgetNoMatchesOutline?: Color;
-	listMatchesShadow?: Color;
 	treeIndentGuidesStroke?: Color;
 	tableColumnsBorder?: Color;
 	tableOddRowsBackgroundColor?: Color;
@@ -978,6 +994,7 @@ const defaultStyles: IListStyles = {
 	listActiveSelectionBackground: Color.fromHex('#0E639C'),
 	listActiveSelectionForeground: Color.fromHex('#FFFFFF'),
 	listActiveSelectionIconForeground: Color.fromHex('#FFFFFF'),
+	listFocusAndSelectionOutline: Color.fromHex('#90C2F9'),
 	listFocusAndSelectionBackground: Color.fromHex('#094771'),
 	listFocusAndSelectionForeground: Color.fromHex('#FFFFFF'),
 	listInactiveSelectionBackground: Color.fromHex('#3F3F46'),
@@ -1224,7 +1241,7 @@ export class List<T> implements ISpliceable<T>, IThemable, IDisposable {
 	protected view: ListView<T>;
 	private spliceable: ISpliceable<T>;
 	private styleController: IStyleController;
-	private typeLabelController?: TypeLabelController<T>;
+	private typeNavigationController?: TypeNavigationController<T>;
 	private accessibilityProvider?: IListAccessibilityProvider<T>;
 	private keyboardController: KeyboardController<T> | undefined;
 	private mouseController: MouseController<T>;
@@ -1267,7 +1284,7 @@ export class List<T> implements ISpliceable<T>, IThemable, IDisposable {
 		const fromKeyDown = this.disposables.add(Event.chain(this.disposables.add(new DomEmitter(this.view.domNode, 'keydown')).event))
 			.map(e => new StandardKeyboardEvent(e))
 			.filter(e => didJustPressContextMenuKey = e.keyCode === KeyCode.ContextMenu || (e.shiftKey && e.keyCode === KeyCode.F10))
-			.map(stopEvent)
+			.map(e => EventHelper.stop(e, true))
 			.filter(() => false)
 			.event as Event<any>;
 
@@ -1275,7 +1292,7 @@ export class List<T> implements ISpliceable<T>, IThemable, IDisposable {
 			.forEach(() => didJustPressContextMenuKey = false)
 			.map(e => new StandardKeyboardEvent(e))
 			.filter(e => e.keyCode === KeyCode.ContextMenu || (e.shiftKey && e.keyCode === KeyCode.F10))
-			.map(stopEvent)
+			.map(e => EventHelper.stop(e, true))
 			.map(({ browserEvent }) => {
 				const focus = this.getFocus();
 				const index = focus.length ? focus[0] : undefined;
@@ -1364,8 +1381,8 @@ export class List<T> implements ISpliceable<T>, IThemable, IDisposable {
 
 		if (_options.keyboardNavigationLabelProvider) {
 			const delegate = _options.keyboardNavigationDelegate || DefaultKeyboardNavigationDelegate;
-			this.typeLabelController = new TypeLabelController(this, this.view, _options.keyboardNavigationLabelProvider, delegate);
-			this.disposables.add(this.typeLabelController);
+			this.typeNavigationController = new TypeNavigationController(this, this.view, _options.keyboardNavigationLabelProvider, _options.keyboardNavigationEventFilter ?? (() => true), delegate);
+			this.disposables.add(this.typeNavigationController);
 		}
 
 		this.mouseController = this.createMouseController(_options);
@@ -1390,7 +1407,7 @@ export class List<T> implements ISpliceable<T>, IThemable, IDisposable {
 	updateOptions(optionsUpdate: IListOptionsUpdate = {}): void {
 		this._options = { ...this._options, ...optionsUpdate };
 
-		this.typeLabelController?.updateOptions(this._options);
+		this.typeNavigationController?.updateOptions(this._options);
 
 		if (this._options.multipleSelectionController !== undefined) {
 			if (this._options.multipleSelectionSupport) {
@@ -1409,7 +1426,7 @@ export class List<T> implements ISpliceable<T>, IThemable, IDisposable {
 		return this._options;
 	}
 
-	splice(start: number, deleteCount: number, elements: T[] = []): void {
+	splice(start: number, deleteCount: number, elements: readonly T[] = []): void {
 		if (start < 0 || start > this.view.length) {
 			throw new ListError(this.user, `Invalid start index: ${start}`);
 		}
@@ -1506,10 +1523,8 @@ export class List<T> implements ISpliceable<T>, IThemable, IDisposable {
 		this.view.layout(height, width);
 	}
 
-	toggleKeyboardNavigation(): void {
-		if (this.typeLabelController) {
-			this.typeLabelController.toggle();
-		}
+	triggerTypeNavigation(): void {
+		this.typeNavigationController?.trigger();
 	}
 
 	setSelection(indexes: number[], browserEvent?: UIEvent): void {
@@ -1774,6 +1789,10 @@ export class List<T> implements ISpliceable<T>, IThemable, IDisposable {
 
 	getHTMLElement(): HTMLElement {
 		return this.view.domNode;
+	}
+
+	getElementID(index: number): string {
+		return this.view.getElementDomId(index);
 	}
 
 	style(styles: IListStyles): void {
