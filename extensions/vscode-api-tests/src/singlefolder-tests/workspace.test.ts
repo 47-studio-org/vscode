@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as assert from 'assert';
+import assert from 'assert';
 import * as fs from 'fs';
 import { basename, join, posix } from 'path';
 import * as vscode from 'vscode';
@@ -597,6 +597,44 @@ suite('vscode API - workspace', () => {
 		});
 	});
 
+	test('`findFiles2`', () => {
+		return vscode.workspace.findFiles2(['**/image.png']).then((res) => {
+			assert.strictEqual(res.length, 2);
+		});
+	});
+
+	test('findFiles2 - null exclude', async () => {
+		await vscode.workspace.findFiles2(['**/file.txt'], { useExcludeSettings: vscode.ExcludeSettingOptions.FilesExclude }).then((res) => {
+			// file.exclude folder is still searched, search.exclude folder is not
+			assert.strictEqual(res.length, 1);
+			assert.strictEqual(basename(vscode.workspace.asRelativePath(res[0])), 'file.txt');
+		});
+
+		await vscode.workspace.findFiles2(['**/file.txt'], { useExcludeSettings: vscode.ExcludeSettingOptions.None }).then((res) => {
+			// search.exclude and files.exclude folders are both searched
+			assert.strictEqual(res.length, 2);
+			assert.strictEqual(basename(vscode.workspace.asRelativePath(res[0])), 'file.txt');
+		});
+	});
+
+	test('findFiles2, exclude', () => {
+		return vscode.workspace.findFiles2(['**/image.png'], { exclude: ['**/sub/**'] }).then((res) => {
+			res.forEach(r => console.log(r.toString()));
+			assert.strictEqual(res.length, 1);
+		});
+	});
+
+	test('findFiles2, cancellation', () => {
+
+		const source = new vscode.CancellationTokenSource();
+		const token = source.token; // just to get an instance first
+		source.cancel();
+
+		return vscode.workspace.findFiles2(['*.js'], {}, token).then((res) => {
+			assert.deepStrictEqual(res, []);
+		});
+	});
+
 	test('findTextInFiles', async () => {
 		const options: vscode.FindTextInFilesOptions = {
 			include: '*.ts',
@@ -886,7 +924,8 @@ suite('vscode API - workspace', () => {
 		}
 	});
 
-	test('workspace.applyEdit drops the TextEdit if there is a RenameFile later #77735 (with opened editor)', async function () {
+	// TODO: below test is flaky and commented out, see https://github.com/microsoft/vscode/issues/238837
+	test.skip('workspace.applyEdit drops the TextEdit if there is a RenameFile later #77735 (with opened editor)', async function () {
 		await test77735(true);
 	});
 
@@ -897,7 +936,7 @@ suite('vscode API - workspace', () => {
 	async function test77735(withOpenedEditor: boolean): Promise<void> {
 		const docUriOriginal = await createRandomFile();
 		const docUriMoved = docUriOriginal.with({ path: `${docUriOriginal.path}.moved` });
-		await deleteFile(docUriMoved); // ensure target does not exist
+		await deleteFile(docUriMoved);
 
 		if (withOpenedEditor) {
 			const document = await vscode.workspace.openTextDocument(docUriOriginal);
@@ -930,8 +969,9 @@ suite('vscode API - workspace', () => {
 			const document = await vscode.workspace.openTextDocument(newUri);
 			assert.strictEqual(document.isDirty, true);
 
-			await document.save();
-			assert.strictEqual(document.isDirty, false);
+			const result = await document.save();
+			assert.strictEqual(result, true, `save failed in iteration: ${i} (docUriOriginal: ${docUriOriginal.fsPath})`);
+			assert.strictEqual(document.isDirty, false, `document still dirty in iteration: ${i} (docUriOriginal: ${docUriOriginal.fsPath})`);
 
 			assert.strictEqual(document.getText(), expected);
 
@@ -1185,6 +1225,27 @@ suite('vscode API - workspace', () => {
 		assert.ok(success);
 		assert.strictEqual(document.getText(), 'foobarhello\nworld');
 		assert.deepStrictEqual(edt.selections, [new vscode.Selection(0, 0, 0, 3)]);
+	});
+
+	test('SnippetString in WorkspaceEdit with keepWhitespace', async function (): Promise<any> {
+		const file = await createRandomFile('This is line 1\n  ');
+
+		const document = await vscode.workspace.openTextDocument(file);
+		const edt = await vscode.window.showTextDocument(document);
+
+		assert.ok(edt === vscode.window.activeTextEditor);
+
+		const snippetText = new vscode.SnippetTextEdit(new vscode.Range(1, 3, 1, 3), new vscode.SnippetString('This is line 2\n  This is line 3'));
+		snippetText.keepWhitespace = true;
+		const we = new vscode.WorkspaceEdit();
+		we.set(document.uri, [snippetText]);
+		const success = await vscode.workspace.applyEdit(we);
+		if (edt !== vscode.window.activeTextEditor) {
+			return this.skip();
+		}
+
+		assert.ok(success);
+		assert.strictEqual(document.getText(), 'This is line 1\n  This is line 2\n  This is line 3');
 	});
 
 	test('Support creating binary files in a WorkspaceEdit', async function (): Promise<any> {

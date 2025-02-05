@@ -1,5 +1,6 @@
 pool:
-  vmImage: "ubuntu-latest"
+  name: 1es-ubuntu-22.04-x64
+  os: linux
 
 trigger:
   branches:
@@ -11,4 +12,5 @@ steps:
     inputs:
       versionSource: fromFile
       versionFilePath: .nvmrc
-  - template: ./distro/download-distro.yml
+      nodejsMirror: https://github.com/joaomoreno/node-mirror/releases/download
+  - template: ./distro/download-distro.yml@self

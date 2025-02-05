@@ -3,11 +3,15 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as assert from 'assert';
-import { runWithFakedTimers } from 'vs/base/test/common/timeTravelScheduler';
-import { Progress } from 'vs/platform/progress/common/progress';
+import assert from 'assert';
+import { runWithFakedTimers } from '../../../../base/test/common/timeTravelScheduler.js';
+import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../base/test/common/utils.js';
+import { AsyncProgress } from '../../common/progress.js';
 
 suite('Progress', () => {
+
+	ensureNoDisposablesAreLeakedInTestSuite();
+
 	test('multiple report calls are processed in sequence', async () => {
 		await runWithFakedTimers({ useFakeTimers: true, maxTaskCount: 100 }, async () => {
 			const executionOrder: string[] = [];
@@ -28,7 +32,7 @@ suite('Progress', () => {
 				}
 				executionOrder.push(`end ${value}`);
 			};
-			const progress = new Progress<number>(executor, { async: true });
+			const progress = new AsyncProgress<number>(executor);
 
 			progress.report(1);
 			progress.report(2);
